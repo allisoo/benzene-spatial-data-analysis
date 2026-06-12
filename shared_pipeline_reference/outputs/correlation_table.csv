@@ -1,0 +1,31 @@
+cancer_site,exposure_variable,method,n,r,p_value
+leukemia,exposure_mean,pearson,300,0.17906887038878738,0.0018468082676472487
+leukemia,exposure_mean,spearman,300,0.4510002093168566,1.947612694575749e-16
+leukemia,exposure_max,pearson,300,0.17911922508662523,0.001841245152925132
+leukemia,exposure_max,spearman,300,0.3692681249947591,3.9999291804844056e-11
+leukemia,exposure_exceedances,pearson,300,,
+leukemia,exposure_exceedances,spearman,300,,
+leukemia,exposure_wind_weighted,pearson,300,0.17896854147945016,0.0018579382923897389
+leukemia,exposure_wind_weighted,spearman,300,0.44941512523950067,2.551635873041485e-16
+leukemia,exposure_distance_weighted,pearson,300,0.17906887038878738,0.0018468082676472487
+leukemia,exposure_distance_weighted,spearman,300,0.4510002093168566,1.947612694575749e-16
+myeloma,exposure_mean,pearson,180,-0.08918833108943718,0.2338008125624277
+myeloma,exposure_mean,spearman,180,0.36617636458914843,4.298601911763835e-07
+myeloma,exposure_max,pearson,180,0.13761188482453152,0.06545045804150908
+myeloma,exposure_max,spearman,180,0.3841172141993829,1.019513137074486e-07
+myeloma,exposure_exceedances,pearson,180,,
+myeloma,exposure_exceedances,spearman,180,,
+myeloma,exposure_wind_weighted,pearson,180,-0.08869326606742939,0.2364170614387026
+myeloma,exposure_wind_weighted,spearman,180,0.3673873500565852,3.911304661641803e-07
+myeloma,exposure_distance_weighted,pearson,180,-0.08918833108943718,0.2338008125624277
+myeloma,exposure_distance_weighted,spearman,180,0.36617636458914843,4.298601911763835e-07
+non-hodgkin lymphoma,exposure_mean,pearson,318,0.1612233272828058,0.003944294668727591
+non-hodgkin lymphoma,exposure_mean,spearman,318,0.26538360601922417,1.5852609101471325e-06
+non-hodgkin lymphoma,exposure_max,pearson,318,0.04893578866084819,0.38444531700904055
+non-hodgkin lymphoma,exposure_max,spearman,318,0.13119583656301234,0.0192595477765725
+non-hodgkin lymphoma,exposure_exceedances,pearson,318,,
+non-hodgkin lymphoma,exposure_exceedances,spearman,318,,
+non-hodgkin lymphoma,exposure_wind_weighted,pearson,318,0.15781060115267936,0.004790698817573755
+non-hodgkin lymphoma,exposure_wind_weighted,spearman,318,0.25958339463170177,2.712473427558062e-06
+non-hodgkin lymphoma,exposure_distance_weighted,pearson,318,0.1612233272828058,0.003944294668727591
+non-hodgkin lymphoma,exposure_distance_weighted,spearman,318,0.26538360601922417,1.5852609101471325e-06

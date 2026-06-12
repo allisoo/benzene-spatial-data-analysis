@@ -1,0 +1,4 @@
+cancer_site,model,n,term,coef,p_value
+leukemia,ols_incidence_rate,300,exposure_mean,125.97920244628146,0.0018468082676472894
+myeloma,ols_incidence_rate,180,exposure_mean,-22.547356704913444,0.23380081256235893
+non-hodgkin lymphoma,ols_incidence_rate,318,exposure_mean,94.59515343538823,0.003944294668726959
