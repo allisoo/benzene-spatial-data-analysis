@@ -63,7 +63,19 @@ def load_rolling_average_data(path: str | Path) -> pd.DataFrame:
     )
 
 
-def merge_rolling_average_data(raw: pd.DataFrame, rolling: pd.DataFrame | None) -> pd.DataFrame:
+def merge_rolling_average_data(raw: pd.DataFrame | None, rolling: pd.DataFrame | None) -> pd.DataFrame:
+    if raw is None and rolling is None:
+        raise ValueError("Provide at least one benzene input: raw measurements or rolling averages.")
+    if raw is None:
+        out = rolling.copy()
+        out["source"] = "rolling_average_only"
+        out["benzene_ppbv"] = np.nan
+        out["benzene_ug_m3"] = np.nan
+        out["concentration_units"] = np.nan
+        out["exceedance_flag"] = False
+        out["rolling_source_latitude_delta"] = 0.0
+        out["rolling_source_longitude_delta"] = 0.0
+        return out
     if rolling is None:
         return raw
 
@@ -77,9 +89,24 @@ def merge_rolling_average_data(raw: pd.DataFrame, rolling: pd.DataFrame | None) 
     merged = raw.merge(
         rolling[rolling_cols],
         on=["date", "monitor_id"],
-        how="left",
+        how="outer",
         suffixes=("", "_rolling_source"),
+        indicator="rolling_merge_status",
     )
+    for col in ["latitude", "longitude"]:
+        source_col = f"{col}_rolling_source"
+        merged[col] = merged[col].fillna(merged[source_col])
+    for col, default in [
+        ("source", "rolling_average_only"),
+        ("benzene_ppbv", np.nan),
+        ("benzene_ug_m3", np.nan),
+        ("concentration_units", np.nan),
+        ("exceedance_flag", False),
+    ]:
+        if col not in merged.columns:
+            merged[col] = default
+        elif not pd.isna(default):
+            merged[col] = merged[col].fillna(default)
     merged["rolling_source_latitude_delta"] = merged["latitude_rolling_source"] - merged["latitude"]
     merged["rolling_source_longitude_delta"] = merged["longitude_rolling_source"] - merged["longitude"]
     return merged.drop(columns=["latitude_rolling_source", "longitude_rolling_source"])
@@ -107,8 +134,28 @@ def convert_units(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def weighted_average_nonmissing(values: pd.Series, weights: pd.Series) -> float:
+    clean = pd.DataFrame({"value": values, "weight": weights}).replace([np.inf, -np.inf], np.nan).dropna()
+    clean = clean[clean["weight"] > 0]
+    if clean.empty or clean["weight"].sum() == 0:
+        return np.nan
+    return float(np.average(clean["value"], weights=clean["weight"]))
+
+
+def first_available_metric(df: pd.DataFrame, preferred: str, fallback: str) -> pd.Series:
+    if preferred in df.columns and fallback in df.columns:
+        return df[preferred].fillna(df[fallback])
+    if preferred in df.columns:
+        return df[preferred]
+    if fallback in df.columns:
+        return df[fallback]
+    return pd.Series(np.nan, index=df.index)
+
+
 def calculate_rolling_means(df: pd.DataFrame) -> pd.DataFrame:
     out = df.sort_values(["monitor_id", "date"]).copy()
+    if "benzene_ug_m3" not in out.columns:
+        out["benzene_ug_m3"] = np.nan
     rolled = []
     for _, group in out.groupby("monitor_id", sort=False):
         monitor = group.set_index("date").sort_index()
@@ -118,6 +165,9 @@ def calculate_rolling_means(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.concat(rolled, ignore_index=True).sort_values(["monitor_id", "date"])
     if "rolling_12mo_avg_source" in out.columns:
         out["rolling_12mo_avg_difference"] = out["rolling_12mo_avg_calc"] - out["rolling_12mo_avg_source"]
+    out["rolling_12mo_avg_best"] = first_available_metric(
+        out, "rolling_12mo_avg_calc", "rolling_12mo_avg_source"
+    )
     return out
 
 
@@ -183,6 +233,10 @@ def summarize_by_monitor(
         work["rolling_12mo_avg_calc"] = np.nan
     if "rolling_12mo_avg_source" not in work.columns:
         work["rolling_12mo_avg_source"] = np.nan
+    if "rolling_12mo_avg_best" not in work.columns:
+        work["rolling_12mo_avg_best"] = first_available_metric(
+            work, "rolling_12mo_avg_calc", "rolling_12mo_avg_source"
+        )
     if "rolling_12mo_avg_difference" not in work.columns:
         work["rolling_12mo_avg_difference"] = np.nan
     if exceedance_threshold_ug_m3 is not None:
@@ -200,6 +254,8 @@ def summarize_by_monitor(
             exceedance_count=("exceedance_flag", "sum"),
             rolling12_latest=("rolling_12mo_avg_calc", "last"),
             rolling12_source_latest=("rolling_12mo_avg_source", "last"),
+            rolling12_best_latest=("rolling_12mo_avg_best", "last"),
+            rolling12_best_mean=("rolling_12mo_avg_best", "mean"),
             rolling12_mean_abs_difference=("rolling_12mo_avg_difference", lambda s: s.abs().mean()),
             rolling_mean_last_available_date=("date", "max"),
         )
@@ -247,22 +303,29 @@ def match_exposure_to_outcome(
         exposure_mean = monitor_summary["mean_benzene"].mean()
         exposure_max = monitor_summary["max_benzene"].max()
         exposure_exceedances = monitor_summary["exceedance_count"].sum()
-        exposure_rolling12 = monitor_summary["rolling12_latest"].mean() if "rolling12_latest" in monitor_summary else np.nan
-        exposure_wind_weighted = (
-            np.average(
-                monitor_summary["mean_benzene"].fillna(0),
-                weights=monitor_summary["downwind_score"].fillna(0),
-            )
-            if monitor_summary["downwind_score"].fillna(0).sum()
+        exposure_rolling12 = (
+            monitor_summary["rolling12_best_latest"].mean()
+            if "rolling12_best_latest" in monitor_summary
             else np.nan
         )
+        exposure_wind_weighted = weighted_average_nonmissing(
+            monitor_summary["mean_benzene"], monitor_summary["downwind_score"].fillna(0)
+        )
+        exposure_rolling12_wind_weighted = weighted_average_nonmissing(
+            monitor_summary["rolling12_best_latest"], monitor_summary["downwind_score"].fillna(0)
+        ) if "rolling12_best_latest" in monitor_summary else np.nan
         distance_weights = 1 / monitor_summary["distance_to_refinery"].replace(0, np.nan)
-        exposure_distance_weighted = (
-            np.average(
-                monitor_summary["mean_benzene"].fillna(0),
-                weights=distance_weights.fillna(distance_weights.max()),
-            )
+        distance_weights = (
+            distance_weights.fillna(distance_weights.max())
             if distance_weights.notna().any()
+            else pd.Series(np.nan, index=monitor_summary.index)
+        )
+        exposure_distance_weighted = weighted_average_nonmissing(
+            monitor_summary["mean_benzene"], distance_weights
+        )
+        exposure_rolling12_distance_weighted = (
+            weighted_average_nonmissing(monitor_summary["rolling12_best_latest"], distance_weights)
+            if "rolling12_best_latest" in monitor_summary
             else np.nan
         )
         out["exposure_mean"] = exposure_mean
@@ -270,10 +333,11 @@ def match_exposure_to_outcome(
         out["exposure_max"] = exposure_max
         out["exposure_exceedances"] = exposure_exceedances
         out["exposure_wind_weighted"] = exposure_wind_weighted
+        out["exposure_rolling12_wind_weighted"] = exposure_rolling12_wind_weighted
         out["exposure_distance_weighted"] = exposure_distance_weighted
+        out["exposure_rolling12_distance_weighted"] = exposure_rolling12_distance_weighted
         return out
 
-    metric_cols = ["mean_benzene", "rolling12_latest", "max_benzene", "exceedance_count"]
     for idx, row in out.iterrows():
         distances = haversine_km(
             row["centroid_latitude"],
@@ -290,24 +354,28 @@ def match_exposure_to_outcome(
         wind_weights = monitor_summary["downwind_score"].fillna(0)
         combined_weights = distance_weights * wind_weights
 
-        out.loc[idx, "exposure_mean"] = np.average(
-            monitor_summary["mean_benzene"].fillna(0), weights=distance_weights
+        out.loc[idx, "exposure_mean"] = weighted_average_nonmissing(
+            monitor_summary["mean_benzene"], distance_weights
         )
         out.loc[idx, "exposure_rolling12"] = (
-            np.average(monitor_summary["rolling12_latest"].fillna(0), weights=distance_weights)
-            if "rolling12_latest" in monitor_summary
+            weighted_average_nonmissing(monitor_summary["rolling12_best_latest"], distance_weights)
+            if "rolling12_best_latest" in monitor_summary
             else np.nan
         )
         out.loc[idx, "exposure_max"] = monitor_summary.loc[distances.idxmin(), "max_benzene"]
-        out.loc[idx, "exposure_exceedances"] = np.average(
-            monitor_summary["exceedance_count"].fillna(0), weights=distance_weights
+        out.loc[idx, "exposure_exceedances"] = weighted_average_nonmissing(
+            monitor_summary["exceedance_count"], distance_weights
         )
         out.loc[idx, "exposure_wind_weighted"] = (
-            np.average(monitor_summary["mean_benzene"].fillna(0), weights=combined_weights)
-            if combined_weights.sum()
+            weighted_average_nonmissing(monitor_summary["mean_benzene"], combined_weights)
+        )
+        out.loc[idx, "exposure_rolling12_wind_weighted"] = (
+            weighted_average_nonmissing(monitor_summary["rolling12_best_latest"], combined_weights)
+            if "rolling12_best_latest" in monitor_summary
             else np.nan
         )
         out.loc[idx, "exposure_distance_weighted"] = out.loc[idx, "exposure_mean"]
+        out.loc[idx, "exposure_rolling12_distance_weighted"] = out.loc[idx, "exposure_rolling12"]
     return out
 
 
@@ -320,10 +388,13 @@ def run_correlations(area_exposure: pd.DataFrame) -> pd.DataFrame:
     rows = []
     exposure_cols = [
         "exposure_mean",
+        "exposure_rolling12",
         "exposure_max",
         "exposure_exceedances",
         "exposure_wind_weighted",
+        "exposure_rolling12_wind_weighted",
         "exposure_distance_weighted",
+        "exposure_rolling12_distance_weighted",
     ]
     for site, site_df in area_exposure.groupby("cancer_site"):
         for col in exposure_cols:
@@ -347,22 +418,25 @@ def run_regressions(area_exposure: pd.DataFrame) -> pd.DataFrame:
 
     rows = []
     for site, site_df in area_exposure.groupby("cancer_site"):
-        clean = site_df[["incidence_rate", "exposure_mean"]].dropna()
-        if len(clean) < 3 or clean["exposure_mean"].nunique() < 2:
-            rows.append({"cancer_site": site, "model": "ols_incidence_rate", "n": len(clean), "term": "exposure_mean", "coef": np.nan, "p_value": np.nan})
-            continue
-        x = sm.add_constant(clean["exposure_mean"])
-        model = sm.OLS(clean["incidence_rate"], x).fit()
-        rows.append(
-            {
-                "cancer_site": site,
-                "model": "ols_incidence_rate",
-                "n": int(model.nobs),
-                "term": "exposure_mean",
-                "coef": model.params.get("exposure_mean", np.nan),
-                "p_value": model.pvalues.get("exposure_mean", np.nan),
-            }
-        )
+        for exposure_col in ["exposure_mean", "exposure_rolling12"]:
+            if exposure_col not in site_df.columns:
+                continue
+            clean = site_df[["incidence_rate", exposure_col]].dropna()
+            if len(clean) < 3 or clean[exposure_col].nunique() < 2:
+                rows.append({"cancer_site": site, "model": "ols_incidence_rate", "n": len(clean), "term": exposure_col, "coef": np.nan, "p_value": np.nan})
+                continue
+            x = sm.add_constant(clean[exposure_col])
+            model = sm.OLS(clean["incidence_rate"], x).fit()
+            rows.append(
+                {
+                    "cancer_site": site,
+                    "model": "ols_incidence_rate",
+                    "n": int(model.nobs),
+                    "term": exposure_col,
+                    "coef": model.params.get(exposure_col, np.nan),
+                    "p_value": model.pvalues.get(exposure_col, np.nan),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -417,24 +491,29 @@ def export_tables_and_figures(
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(7, 6))
+    color_metric = (
+        monitor_summary["mean_benzene"]
+        if monitor_summary["mean_benzene"].notna().any()
+        else monitor_summary["rolling12_best_latest"]
+    )
     scatter = ax.scatter(
         monitor_summary["longitude"],
         monitor_summary["latitude"],
-        c=monitor_summary["mean_benzene"],
+        c=color_metric,
         s=80,
         cmap="viridis",
     )
-    ax.set_title("Monitor locations and mean benzene")
+    ax.set_title("Monitor locations and exposure")
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
-    fig.colorbar(scatter, ax=ax, label="Mean benzene (ug/m3)")
+    fig.colorbar(scatter, ax=ax, label="Benzene exposure (ug/m3)")
     fig.tight_layout()
     fig.savefig(out_path / "monitor_exposure_map.png", dpi=200)
     plt.close(fig)
 
 
 def build_pipeline(
-    benzene_path: str | Path,
+    benzene_path: str | Path | None,
     cancer_path: str | Path,
     wind_path: str | Path | None,
     out_dir: str | Path,
@@ -444,7 +523,7 @@ def build_pipeline(
     sensitivity_lags_years: list[int] | None = None,
     exceedance_threshold_ug_m3: float | None = None,
 ) -> None:
-    raw_benzene = convert_units(clean_benzene_data(benzene_path))
+    raw_benzene = convert_units(clean_benzene_data(benzene_path)) if benzene_path else None
     rolling = load_rolling_average_data(rolling_path) if rolling_path else None
     benzene = calculate_rolling_means(merge_rolling_average_data(raw_benzene, rolling))
     wind = load_wind_data(wind_path) if wind_path else None
@@ -456,16 +535,6 @@ def build_pipeline(
         exceedance_threshold_ug_m3=exceedance_threshold_ug_m3,
     )
     area_exposure = match_exposure_to_outcome(cancer, monitor_summary, lag_years=primary_lag_years)
-    ## TEST!!!
-    print("Is this even printing?")
-    print(area_exposure[
-        [
-            "geography_name",
-            "exposure_mean",
-            "exposure_max",
-            "exposure_distance_weighted"
-        ]
-    ].drop_duplicates())
     try:
         correlations = run_correlations(area_exposure)
     except ImportError:
@@ -497,7 +566,7 @@ def build_pipeline(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--benzene", required=True, help="Path to benzene monitoring CSV")
+    parser.add_argument("--benzene", help="Optional path to raw benzene monitoring CSV")
     parser.add_argument("--rolling", help="Optional path to third-party rolling 12-month average CSV")
     parser.add_argument("--cancer", required=True, help="Path to cancer CSV")
     parser.add_argument("--wind", help="Path to wind CSV")
@@ -512,7 +581,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    print("something")
+    if not args.benzene and not args.rolling:
+        raise ValueError("Provide --benzene, --rolling, or both.")
     build_pipeline(
         benzene_path=args.benzene,
         cancer_path=args.cancer,
