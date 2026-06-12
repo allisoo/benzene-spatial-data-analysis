@@ -1,15 +1,18 @@
-# Beaumont Refinery Benzene-Cancer Analysis
+# Benzene-Cancer Analysis
 ## Data Inputs
 
 ### Raw Data
 
 Place raw source CSVs in `work`
 - place ExxonMobil's self-reported monitoring in `work/benzene/exxonmobil_data`
+	- only available for some sites! If you can't find these tables, use rolling 12mo averages from the Environmental Integrity Project (EIP). You only need one benzene CSV (although both is better).
 	- these will download as a PDF, so use a converting software like [iLovePDF](https://www.ilovepdf.com/pdf_to_excel) to convert the PDF to XLSX, then save as a CSV
 	- check headers as converting software does not always convert properly
 		- cells A1:A4 should be: `Sampler Name, Sampler Latitude, Sampler Longitude, Date of Retrieval`
 - place Environmental Integrity Project (EIP) derived 12 month rolling average in `work/benzene/eip_data`
+	- access [here](https://environmentalintegrity.shinyapps.io/fencelinemonitoring/?_inputs_&navbar=%22periods%22&action_fac_type=%22%22&dropdown1=%22%22&fac_type=%22%22&facility_input=%22%22&conc_chem=%22%22&date_input=%22%22)
 - place All Texas Cancer Registry (TCR) files in `work/cancer`
+	- access [here](https://www.cancer-rates.com/tx/)
 
 Note: For benzene data, you can provide raw measurements, rolling averages, or both. At least one benzene exposure file is required. Some sites will vary w/ data availability.
 
@@ -43,7 +46,7 @@ The pipeline accepts custom paths, so filenames can differ.
 ---
 ## Expected Fields
 
-If you used the data compilers, these field should already be filled. If reformatting your own data, use the following:
+If you used the data compilers, these field should already be filled. If reformatting your own data (such as for non-ExxonMobil sites), use the following:
 
 ### Expected Benzene Fields
 
