@@ -9,8 +9,9 @@ Place raw source CSVs in `work`
 	- check headers as converting software does not always convert properly
 		- cells A1:A4 should be: `Sampler Name, Sampler Latitude, Sampler Longitude, Date of Retrieval`
 - place Environmental Integrity Project (EIP) derived 12 month rolling average in `work/benzene/eip_data`
-	- OPTIONAL DATASET but highly recommend including
 - place All Texas Cancer Registry (TCR) files in `work/cancer`
+
+Note: For benzene data, you can provide raw measurements, rolling averages, or both. At least one benzene exposure file is required. Some sites will vary w/ data availability.
 
 ### Reformatting/Getting Data
 
@@ -43,6 +44,7 @@ The pipeline accepts custom paths, so filenames can differ.
 ## Expected Fields
 
 If you used the data compilers, these field should already be filled. If reformatting your own data, use the following:
+
 ### Expected Benzene Fields
 
 Minimum:
@@ -57,7 +59,7 @@ Optional:
 - `concentration_units`
 - `exceedance_flag`
 
-### Optional Rolling Average Fields
+### Rolling Average Fields
 
 If you have a separate EIP or other third-party rolling-average file, pass it with `--rolling`.
 
@@ -106,6 +108,15 @@ source .venv/bin/activate
 pip3 install -r requirements.txt
 python3 -m beaumont_benzene_cancer.pipeline \
   --benzene data/raw/benzene_monitoring.csv \
+  --rolling data/raw/rolling_12mo_avg.csv \
+  --cancer data/raw/cancer.csv \
+  --wind data/raw/wind.csv \
+  --out outputs
+```
+
+Rolling-only run:
+```bash
+python3 -m beaumont_benzene_cancer.pipeline \
   --rolling data/raw/rolling_12mo_avg.csv \
   --cancer data/raw/cancer.csv \
   --wind data/raw/wind.csv \
