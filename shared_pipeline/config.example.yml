@@ -1,0 +1,19 @@
+refinery:
+  name: ExxonMobil Beaumont Refinery
+  latitude: 30.0802
+  longitude: -94.1266
+
+analysis:
+  primary_lag_years: 5
+  sensitivity_lags_years: [10, 15]
+  distance_bands_km: [0, 5, 10, 20]
+  exceedance_threshold_ug_m3:
+
+inputs:
+  benzene: data/raw/benzene_monitoring.csv
+  cancer: data/raw/cancer.csv
+  wind: data/raw/wind.csv
+
+outputs:
+  directory: outputs
+
